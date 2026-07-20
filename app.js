@@ -73,6 +73,9 @@ const sfWarehouseInput = document.getElementById('sf-warehouse');
 const sfDatabaseInput = document.getElementById('sf-database');
 const sfSchemaInput = document.getElementById('sf-schema');
 const sfTableNameInput = document.getElementById('sf-table-name');
+const sfTableNameInput2 = document.getElementById('sf-table-name-2');
+const sfSyncModeSelect = document.getElementById('sf-sync-mode');
+const groupSfTable2 = document.getElementById('group-sf-table-2');
 const testSfBtn = document.getElementById('test-sf-btn');
 const saveSfBtn = document.getElementById('save-sf-btn');
 const sfResponseArea = document.getElementById('sf-response-area');
@@ -268,6 +271,17 @@ document.addEventListener('DOMContentLoaded', () => {
         kafkaPanel.classList.add('hidden');
     });
 
+    // Snowflake sync mode toggle
+    if (sfSyncModeSelect) {
+        sfSyncModeSelect.addEventListener('change', (e) => {
+            if (e.target.value === '2') {
+                if (groupSfTable2) groupSfTable2.classList.remove('hidden');
+            } else {
+                if (groupSfTable2) groupSfTable2.classList.add('hidden');
+            }
+        });
+    }
+
     // Number of Consumers toggle
     if (kafkaNumConsumersSelect) {
         kafkaNumConsumersSelect.addEventListener('change', (e) => {
@@ -300,7 +314,8 @@ function handleFileSelect(file) {
 
     // Auto-populate default Snowflake & Kafka table names
     const cleanName = file.name.replace(/\.csv$/i, '').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase();
-    sfTableNameInput.value = cleanName;
+    if (sfTableNameInput) sfTableNameInput.value = `${cleanName}_SF_1`;
+    if (sfTableNameInput2) sfTableNameInput2.value = `${cleanName}_SF_2`;
     if (kafkaTableNameInput) kafkaTableNameInput.value = `${cleanName}_TABLE_1`;
     if (kafkaTableNameInput2) kafkaTableNameInput2.value = `${cleanName}_TABLE_2`;
 
@@ -771,9 +786,19 @@ async function saveToSnowflake() {
 
     const tableName = sfTableNameInput.value.trim();
     if (!tableName) {
-        showToast('Please specify a target table name in Snowflake.', 'error');
+        showToast('Please specify target Table #1 name in Snowflake.', 'error');
         sfTableNameInput.focus();
         return;
+    }
+
+    let tableName2 = null;
+    if (sfSyncModeSelect && sfSyncModeSelect.value === '2' && sfTableNameInput2) {
+        tableName2 = sfTableNameInput2.value.trim();
+        if (!tableName2) {
+            showToast('Please specify target Table #2 name for Dual Table Sync.', 'error');
+            sfTableNameInput2.focus();
+            return;
+        }
     }
 
     if (!appState.serverFileUploaded) {
@@ -791,6 +816,7 @@ async function saveToSnowflake() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 table_name: tableName,
+                table_name_2: tableName2,
                 credentials: creds,
                 if_exists: "replace"
             })

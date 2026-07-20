@@ -57,6 +57,7 @@ class SnowflakeCredentials(BaseModel):
 
 class SnowflakeSaveRequest(BaseModel):
     table_name: str
+    table_name_2: Optional[str] = None
     credentials: Optional[SnowflakeCredentials] = None
     if_exists: str = "replace"
 
@@ -232,40 +233,74 @@ async def save_to_snowflake(payload: SnowflakeSaveRequest):
 
     table_name = payload.table_name.strip()
     if not table_name:
-        raise HTTPException(status_code=400, detail="Target table name is required.")
+        raise HTTPException(status_code=400, detail="Target table name #1 is required.")
 
-    clean_table_name = re.sub(r'[^A-Za-z0-9_]', '_', table_name).upper()
+    clean_table_1 = re.sub(r'[^A-Za-z0-9_]', '_', table_name).upper()
     df_to_save = df.copy()
     df_to_save.columns = [re.sub(r'[^A-Za-z0-9_]', '_', col).upper() for col in df_to_save.columns]
 
     conn, info = get_snowflake_connection(payload.credentials)
     try:
         overwrite = (payload.if_exists == "replace")
-        success, nchunks, nrows, _ = write_pandas(
+        success_1, nchunks_1, nrows_1, _ = write_pandas(
             conn=conn,
             df=df_to_save,
-            table_name=clean_table_name,
+            table_name=clean_table_1,
             database=info["database"] if info["database"] != "DEFAULT" else None,
             schema=info["schema"] if info["schema"] != "DEFAULT" else "PUBLIC",
             auto_create_table=True,
             overwrite=overwrite
         )
+
+        if not success_1:
+            conn.close()
+            raise HTTPException(status_code=500, detail=f"write_pandas failed for Table #1 ('{clean_table_1}').")
+
+        # Check if table_name_2 is requested
+        clean_table_2 = None
+        nrows_2 = 0
+        if payload.table_name_2 and payload.table_name_2.strip():
+            clean_table_2 = re.sub(r'[^A-Za-z0-9_]', '_', payload.table_name_2.strip()).upper()
+            success_2, nchunks_2, nrows_2, _ = write_pandas(
+                conn=conn,
+                df=df_to_save,
+                table_name=clean_table_2,
+                database=info["database"] if info["database"] != "DEFAULT" else None,
+                schema=info["schema"] if info["schema"] != "DEFAULT" else "PUBLIC",
+                auto_create_table=True,
+                overwrite=overwrite
+            )
+            if not success_2:
+                conn.close()
+                raise HTTPException(status_code=500, detail=f"write_pandas failed for Table #2 ('{clean_table_2}').")
+
         conn.close()
 
-        if not success:
-            raise HTTPException(status_code=500, detail="write_pandas reported failure.")
-
-        return {
-            "status": "success",
-            "message": f"Successfully inserted {nrows:,} rows into Snowflake table '{clean_table_name}'.",
-            "details": {
-                "table_name": clean_table_name,
-                "rows_inserted": nrows,
-                "chunks_written": nchunks,
-                "database": info["database"],
-                "schema": info["schema"]
+        if clean_table_2:
+            return {
+                "status": "success",
+                "message": f"Successfully inserted {nrows_1:,} rows into Table #1 ('{clean_table_1}') and {nrows_2:,} rows into Table #2 ('{clean_table_2}')!",
+                "details": {
+                    "table_name_1": clean_table_1,
+                    "rows_inserted_1": nrows_1,
+                    "table_name_2": clean_table_2,
+                    "rows_inserted_2": nrows_2,
+                    "database": info["database"],
+                    "schema": info["schema"]
+                }
             }
-        }
+        else:
+            return {
+                "status": "success",
+                "message": f"Successfully inserted {nrows_1:,} rows into Snowflake table '{clean_table_1}'.",
+                "details": {
+                    "table_name": clean_table_1,
+                    "rows_inserted": nrows_1,
+                    "chunks_written": nchunks_1,
+                    "database": info["database"],
+                    "schema": info["schema"]
+                }
+            }
     except Exception as e:
         if conn:
             conn.close()
@@ -286,7 +321,7 @@ async def start_kafka_stream(payload: KafkaStreamRequest):
 
     table_name = payload.table_name.strip()
     if not table_name:
-        raise HTTPException(status_code=400, detail="Target table name in Snowflake is required.")
+        raise HTTPException(status_code=400, detail="Consumer #1 target table name in Snowflake is required.")
 
     # Launch streaming task asynchronously
     asyncio.create_task(

@@ -215,16 +215,31 @@
                     </div>
 
                     <div class="sf-action-row">
-                        <div class="target-table-group">
-                            <label for="sf-table-name"><i class="ri-table-line"></i> Target Table Name in Snowflake:</label>
-                            <input type="text" id="sf-table-name" placeholder="e.g., EMPLOYEES_DATA">
+                        <div class="target-table-group" style="width: 100%; margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label for="sf-sync-mode" style="color: #00d2ff; font-size: 13px; font-weight: 600;"><i class="ri-git-branch-line"></i> Snowflake Sync Mode:</label>
+                                <select id="sf-sync-mode" style="background: rgba(0,0,0,0.5); border: 1px solid #00d2ff; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 13px;">
+                                    <option value="1">Single Table Sync (1 Table)</option>
+                                    <option value="2" selected>Dual Table Sync (Fan-Out to 2 Tables)</option>
+                                </select>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+                                <div>
+                                    <label for="sf-table-name"><i class="ri-table-line"></i> Target Table #1 Name:</label>
+                                    <input type="text" id="sf-table-name" placeholder="e.g., EMPLOYEES_DATA_1">
+                                </div>
+                                <div id="group-sf-table-2">
+                                    <label for="sf-table-name-2"><i class="ri-table-line"></i> Target Table #2 Name:</label>
+                                    <input type="text" id="sf-table-name-2" placeholder="e.g., EMPLOYEES_DATA_2">
+                                </div>
+                            </div>
                         </div>
-                        <div class="sf-buttons">
+                        <div class="sf-buttons" style="width: 100%; justify-content: flex-end;">
                             <button class="btn btn-outline" id="test-sf-btn">
                                 <i class="ri-plug-line"></i> Test Connection
                             </button>
                             <button class="btn btn-snowflake" id="save-sf-btn">
-                                <i class="ri-cloud-upload-fill"></i> Push Data to Snowflake Table
+                                <i class="ri-cloud-upload-fill"></i> Push Data to Snowflake Table(s)
                             </button>
                         </div>
                     </div>
