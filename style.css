@@ -737,7 +737,11 @@ body {
 .log-info { color: #94a3b8; }
 .log-producer { color: #ff8c3b; }
 .log-consumer { color: #38bdf8; }
+.log-consumer-1 { color: #38bdf8; font-weight: 500; }
+.log-consumer-2 { color: #c084fc; font-weight: 500; }
 .log-snowflake { color: #10b981; font-weight: 600; }
+.log-snowflake-1 { color: #10b981; font-weight: 600; }
+.log-snowflake-2 { color: #facc15; font-weight: 600; }
 .log-error { color: #ef4444; font-weight: 600; }
 
 /* ==========================================================================

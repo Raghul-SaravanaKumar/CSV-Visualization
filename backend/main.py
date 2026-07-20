@@ -64,6 +64,8 @@ class KafkaStreamRequest(BaseModel):
     topic_name: str = "sf-csv-stream"
     batch_size: int = 10
     table_name: str
+    num_consumers: int = 1
+    table_name_2: Optional[str] = None
     use_real_kafka: bool = False
     bootstrap_servers: str = "localhost:9092"
     credentials: Optional[SnowflakeCredentials] = None
@@ -296,15 +298,19 @@ async def start_kafka_stream(payload: KafkaStreamRequest):
             use_real_kafka=payload.use_real_kafka,
             bootstrap_servers=payload.bootstrap_servers,
             get_conn_fn=get_snowflake_connection,
-            creds_payload=payload.credentials
+            creds_payload=payload.credentials,
+            num_consumers=payload.num_consumers,
+            table_name_2=payload.table_name_2
         )
     )
 
+    msg_str = f"Apache Kafka stream initiated ({payload.num_consumers} Consumer{'s' if payload.num_consumers>1 else ''})! Publishing {len(df)} records in batches of {payload.batch_size} to Snowflake."
     return {
         "status": "started",
-        "message": f"Apache Kafka stream initiated! Publishing {len(df)} records in batches of {payload.batch_size} to Snowflake table '{table_name.upper()}'.",
+        "message": msg_str,
         "topic": payload.topic_name,
-        "batch_size": payload.batch_size
+        "batch_size": payload.batch_size,
+        "num_consumers": payload.num_consumers
     }
 
 @app.get("/api/kafka/status")

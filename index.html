@@ -112,6 +112,13 @@
                     
                     <div class="sf-form-grid kafka-config-grid">
                         <div class="form-group">
+                            <label for="kafka-num-consumers">Number of Consumers (Fan-Out)</label>
+                            <select id="kafka-num-consumers" class="kafka-select">
+                                <option value="1">1 Consumer (Single Table Ingestion)</option>
+                                <option value="2" selected>2 Consumers (Fan-Out to 2 Tables)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label for="kafka-topic">Kafka Topic Name</label>
                             <input type="text" id="kafka-topic" value="sf-csv-stream" placeholder="sf-csv-stream">
                         </div>
@@ -127,16 +134,20 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="kafka-table-name">Target Snowflake Table</label>
-                            <input type="text" id="kafka-table-name" placeholder="e.g., SAMPLE_DATA_KAFKA">
+                            <label for="kafka-table-name"><i class="ri-table-line"></i> Consumer #1 Target Table</label>
+                            <input type="text" id="kafka-table-name" placeholder="e.g., SAMPLE_DATA_TABLE_1">
+                        </div>
+                        <div class="form-group" id="group-kafka-table-2">
+                            <label for="kafka-table-name-2"><i class="ri-table-line"></i> Consumer #2 Target Table</label>
+                            <input type="text" id="kafka-table-name-2" placeholder="e.g., SAMPLE_DATA_TABLE_2">
                         </div>
                     </div>
 
                     <div class="kafka-action-row">
                         <div class="kafka-status-summary">
                             <span class="k-stat"><i class="ri-send-plane-fill"></i> Produced: <strong id="k-produced">0</strong> rows</span>
-                            <span class="k-stat"><i class="ri-download-cloud-fill"></i> Consumed: <strong id="k-consumed">0</strong> rows</span>
-                            <span class="k-stat"><i class="ri-database-2-fill"></i> Snowflake Batches: <strong id="k-batches">0</strong></span>
+                            <span class="k-stat"><i class="ri-download-cloud-fill" style="color:#38bdf8;"></i> C#1: <strong id="k-consumed">0</strong> rows (<span id="k-batches">0</span>b)</span>
+                            <span class="k-stat" id="stat-c2"><i class="ri-download-cloud-fill" style="color:#a855f7;"></i> C#2: <strong id="k-consumed-2">0</strong> rows (<span id="k-batches-2">0</span>b)</span>
                         </div>
                         <button class="btn btn-kafka" id="start-kafka-btn">
                             <i class="ri-play-fill"></i> Start Kafka Stream & Push 10 Rows/Batch

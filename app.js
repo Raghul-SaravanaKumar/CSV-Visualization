@@ -1,6 +1,6 @@
 /**
  * CSV Executer, Snowflake & Apache Kafka Stream Inspector - Core Frontend Logic
- * Client-side CSV parsing, virtual rendering, filtering, sorting, Snowflake Cloud sync, and real-time Kafka batch streaming.
+ * Client-side CSV parsing, virtual rendering, filtering, sorting, Snowflake Cloud sync, and real-time Multi-Consumer Kafka fan-out streaming.
  */
 
 // Global Application State
@@ -82,14 +82,20 @@ const sfOutput = document.getElementById('sf-output');
 const toggleKafkaBtn = document.getElementById('toggle-kafka-btn');
 const kafkaPanel = document.getElementById('kafka-panel');
 const closeKafkaPanelBtn = document.getElementById('close-kafka-panel');
+const kafkaNumConsumersSelect = document.getElementById('kafka-num-consumers');
 const kafkaTopicInput = document.getElementById('kafka-topic');
 const kafkaBatchSizeInput = document.getElementById('kafka-batch-size');
 const kafkaModeSelect = document.getElementById('kafka-mode');
 const kafkaTableNameInput = document.getElementById('kafka-table-name');
+const kafkaTableNameInput2 = document.getElementById('kafka-table-name-2');
+const groupKafkaTable2 = document.getElementById('group-kafka-table-2');
 const startKafkaBtn = document.getElementById('start-kafka-btn');
 const kProduced = document.getElementById('k-produced');
 const kConsumed = document.getElementById('k-consumed');
 const kBatches = document.getElementById('k-batches');
+const kConsumed2 = document.getElementById('k-consumed-2');
+const kBatches2 = document.getElementById('k-batches-2');
+const statC2 = document.getElementById('stat-c2');
 const kafkaProgressWrapper = document.getElementById('kafka-progress-wrapper');
 const kafkaProgressBar = document.getElementById('kafka-progress-bar');
 const kafkaTerminalStatus = document.getElementById('kafka-terminal-status');
@@ -262,6 +268,19 @@ document.addEventListener('DOMContentLoaded', () => {
         kafkaPanel.classList.add('hidden');
     });
 
+    // Number of Consumers toggle
+    if (kafkaNumConsumersSelect) {
+        kafkaNumConsumersSelect.addEventListener('change', (e) => {
+            if (e.target.value === '2') {
+                if (groupKafkaTable2) groupKafkaTable2.classList.remove('hidden');
+                if (statC2) statC2.classList.remove('hidden');
+            } else {
+                if (groupKafkaTable2) groupKafkaTable2.classList.add('hidden');
+                if (statC2) statC2.classList.add('hidden');
+            }
+        });
+    }
+
     uploadToServerBtn.addEventListener('click', uploadCsvToBackend);
     executeQueryBtn.addEventListener('click', executePythonQuery);
     
@@ -282,7 +301,8 @@ function handleFileSelect(file) {
     // Auto-populate default Snowflake & Kafka table names
     const cleanName = file.name.replace(/\.csv$/i, '').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase();
     sfTableNameInput.value = cleanName;
-    kafkaTableNameInput.value = `${cleanName}_KAFKA`;
+    if (kafkaTableNameInput) kafkaTableNameInput.value = `${cleanName}_TABLE_1`;
+    if (kafkaTableNameInput2) kafkaTableNameInput2.value = `${cleanName}_TABLE_2`;
 
     const startTime = performance.now();
 
@@ -797,7 +817,7 @@ async function saveToSnowflake() {
 }
 
 /* ==========================================================================
-   Apache Kafka Streaming & 10-Record Batch Upload Functions
+   Apache Kafka Multi-Consumer Fan-Out Streaming Functions (`10` Records/Batch)
    ========================================================================== */
 async function startKafkaStreaming() {
     if (!appState.currentFile) {
@@ -805,11 +825,22 @@ async function startKafkaStreaming() {
         return;
     }
 
+    const numConsumers = parseInt(kafkaNumConsumersSelect ? kafkaNumConsumersSelect.value : 1, 10) || 1;
     const tableName = kafkaTableNameInput.value.trim();
     if (!tableName) {
-        showToast('Please specify a target Snowflake table name for the Kafka stream.', 'error');
+        showToast('Please specify Consumer #1 target Snowflake table name.', 'error');
         kafkaTableNameInput.focus();
         return;
+    }
+
+    let tableName2 = null;
+    if (numConsumers === 2) {
+        tableName2 = kafkaTableNameInput2.value.trim();
+        if (!tableName2) {
+            showToast('Please specify Consumer #2 target Snowflake table name.', 'error');
+            kafkaTableNameInput2.focus();
+            return;
+        }
     }
 
     if (!appState.serverFileUploaded) {
@@ -822,11 +853,11 @@ async function startKafkaStreaming() {
     const useRealKafka = (kafkaModeSelect.value === "real");
 
     startKafkaBtn.disabled = true;
-    startKafkaBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Kafka Pipeline Running...';
+    startKafkaBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Kafka Fan-Out Pipeline Running...';
     kafkaProgressWrapper.classList.remove('hidden');
     kafkaTerminalStatus.textContent = 'STREAMING';
     kafkaTerminalStatus.style.color = '#ff8c3b';
-    kafkaLogsBox.innerHTML = '<p class="log-info">[System] Launching Apache Kafka stream pipeline...</p>';
+    kafkaLogsBox.innerHTML = `<p class="log-info">[System] Launching Apache Kafka Fan-Out stream (${numConsumers} Consumer${numConsumers>1?'s':''})...</p>`;
 
     try {
         const creds = getSnowflakeCredentialsPayload();
@@ -837,6 +868,8 @@ async function startKafkaStreaming() {
                 topic_name: topicName,
                 batch_size: batchSize,
                 table_name: tableName,
+                num_consumers: numConsumers,
+                table_name_2: tableName2,
                 use_real_kafka: useRealKafka,
                 bootstrap_servers: "localhost:9092",
                 credentials: creds
@@ -851,9 +884,9 @@ async function startKafkaStreaming() {
         appState.kafkaStreaming = true;
         showToast(data.message, 'success');
 
-        // Start polling status every 400ms to animate terminal & progress bar
+        // Start polling status every 350ms to animate terminal & progress bar
         if (appState.kafkaStatusInterval) clearInterval(appState.kafkaStatusInterval);
-        appState.kafkaStatusInterval = setInterval(pollKafkaStatus, 400);
+        appState.kafkaStatusInterval = setInterval(pollKafkaStatus, 350);
 
     } catch (err) {
         showToast(`Kafka error: ${err.message}`, 'error');
@@ -873,20 +906,28 @@ async function pollKafkaStatus() {
 
         // Update counters
         kProduced.textContent = (data.messages_produced || 0).toLocaleString();
-        kConsumed.textContent = (data.messages_consumed || 0).toLocaleString();
-        kBatches.textContent = (data.batches_uploaded || 0).toLocaleString();
+        kConsumed.textContent = (data.consumer_1_messages || 0).toLocaleString();
+        kBatches.textContent = (data.consumer_1_batches || 0).toLocaleString();
+        
+        if (kConsumed2 && kBatches2) {
+            kConsumed2.textContent = (data.consumer_2_messages || 0).toLocaleString();
+            kBatches2.textContent = (data.consumer_2_batches || 0).toLocaleString();
+        }
 
         // Update progress bar
         const total = data.total_rows || 1;
-        const progress = Math.min(100, Math.round(((data.messages_consumed || 0) / total) * 100));
+        const progress = Math.min(100, Math.round(((data.consumer_1_messages || 0) / total) * 100));
         kafkaProgressBar.style.width = `${progress}%`;
 
-        // Render terminal logs
+        // Render terminal logs with distinct color coding
         if (data.logs && data.logs.length > 0) {
             const htmlLogs = data.logs.map(line => {
                 let cssClass = 'log-info';
                 if (line.includes('[Kafka Producer]')) cssClass = 'log-producer';
-                else if (line.includes('[Kafka Consumer]')) cssClass = 'log-consumer';
+                else if (line.includes('[Consumer #1')) cssClass = 'log-consumer-1';
+                else if (line.includes('[Consumer #2')) cssClass = 'log-consumer-2';
+                else if (line.includes('[Snowflake DB - Table 1]')) cssClass = 'log-snowflake-1';
+                else if (line.includes('[Snowflake DB - Table 2]')) cssClass = 'log-snowflake-2';
                 else if (line.includes('[Snowflake DB]')) cssClass = 'log-snowflake';
                 else if (line.includes('[Error]')) cssClass = 'log-error';
                 return `<p class="${cssClass}">${line}</p>`;
@@ -909,7 +950,7 @@ async function pollKafkaStatus() {
                 kafkaTerminalStatus.textContent = 'COMPLETED';
                 kafkaTerminalStatus.style.color = '#10b981';
                 kafkaProgressBar.style.width = '100%';
-                showToast(`Kafka batch stream completed! All ${data.total_rows} rows inserted to Snowflake.`, 'success');
+                showToast(`Kafka stream completed! All ${data.total_rows} records inserted into target Snowflake tables.`, 'success');
             } else {
                 kafkaTerminalStatus.textContent = 'ERROR';
                 kafkaTerminalStatus.style.color = '#ef4444';
