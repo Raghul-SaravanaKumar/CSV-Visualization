@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Executer & Inspector | High-Performance Data Studio & Snowflake Sync</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Remix Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
+    <!-- PapaParse CDN for robust CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Background Glow Elements -->
+    <div class="glow-bg glow-1"></div>
+    <div class="glow-bg glow-2"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="navbar">
+            <div class="brand">
+                <div class="logo-icon"><i class="ri-table-alt-line"></i></div>
+                <div>
+                    <h1>CSV <span>Executer</span></h1>
+                    <p class="subtitle">Interactive CSV Viewer, Inspector, Python Execution & Snowflake Sync Engine</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <span class="status-badge" id="mode-badge">
+                    <span class="pulse-dot"></span> Client-Side Engine Ready
+                </span>
+                <button class="btn btn-outline" id="toggle-server-btn" title="Toggle Python Query Panel">
+                    <i class="ri-terminal-box-line"></i> Python Executer
+                </button>
+                <button class="btn btn-snowflake" id="toggle-snowflake-btn" title="Toggle Snowflake Cloud DB Panel">
+                    <i class="ri-cloud-fill"></i> Snowflake DB
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Drag & Drop Upload Section -->
+            <section class="upload-section">
+                <div class="drop-zone" id="drop-zone">
+                    <input type="file" id="csv-file-input" accept=".csv" class="file-input-hidden">
+                    <div class="drop-content">
+                        <div class="upload-icon-wrapper">
+                            <i class="ri-upload-cloud-2-line"></i>
+                        </div>
+                        <h3>Drag & Drop your CSV file here</h3>
+                        <p>Or <button type="button" class="browse-link" id="browse-btn">browse from computer</button> to inspect, execute, and sync to Snowflake immediately</p>
+                        <div class="supported-info">
+                            <span><i class="ri-check-line"></i> Instant Client-Side Parsing</span>
+                            <span><i class="ri-check-line"></i> Python Pandas Engine</span>
+                            <span><i class="ri-check-line"></i> Snowflake Cloud Bulk-Sync</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Summary Card (Hidden initially) -->
+                <div class="file-info-card hidden" id="file-info-card">
+                    <div class="file-details">
+                        <div class="file-icon"><i class="ri-file-excel-2-fill"></i></div>
+                        <div class="file-meta">
+                            <h4 id="file-name">dataset.csv</h4>
+                            <div class="file-stats">
+                                <span id="file-size"><i class="ri-hard-drive-2-line"></i> 0 KB</span>
+                                <span id="row-count"><i class="ri-list-ordered"></i> 0 Rows</span>
+                                <span id="col-count"><i class="ri-layout-column-line"></i> 0 Columns</span>
+                                <span class="parse-time" id="parse-time"><i class="ri-timer-flash-line"></i> 0ms</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="file-actions">
+                        <button class="btn btn-secondary" id="reset-file-btn">
+                            <i class="ri-refresh-line"></i> Change File
+                        </button>
+                        <button class="btn btn-primary" id="upload-to-server-btn">
+                            <i class="ri-terminal-box-line"></i> Send to Python Backend
+                        </button>
+                        <button class="btn btn-snowflake-action" id="open-snowflake-save-btn">
+                            <i class="ri-database-2-fill"></i> Save to Snowflake
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Snowflake Cloud DB Sync Panel (Collapsible) -->
+            <section class="snowflake-panel hidden" id="snowflake-panel">
+                <div class="panel-header">
+                    <div class="panel-title sf-title">
+                        <i class="ri-snowflake-line"></i>
+                        <h3>Snowflake Database Connector & Auto-Sync</h3>
+                        <span class="tag sf-tag">Cloud Data Warehouse</span>
+                    </div>
+                    <button class="icon-btn" id="close-snowflake-panel"><i class="ri-close-line"></i></button>
+                </div>
+                <div class="panel-body">
+                    <p class="panel-desc">Configure your Snowflake credentials or rely on server `.env` defaults, and bulk-load your uploaded CSV directly into a Snowflake table in seconds (`write_pandas`).</p>
+                    
+                    <div class="sf-form-grid">
+                        <div class="form-group">
+                            <label for="sf-account">Snowflake Account Identifier</label>
+                            <input type="text" id="sf-account" placeholder="e.g., xy12345.us-east-1 or org-account">
+                        </div>
+                        <div class="form-group">
+                            <label for="sf-user">Username</label>
+                            <input type="text" id="sf-user" placeholder="e.g., RAGHU_ADMIN">
+                        </div>
+                        <div class="form-group">
+                            <label for="sf-password">Password</label>
+                            <input type="password" id="sf-password" placeholder="••••••••••••">
+                        </div>
+                        <div class="form-group">
+                            <label for="sf-warehouse">Warehouse</label>
+                            <input type="text" id="sf-warehouse" placeholder="COMPUTE_WH">
+                        </div>
+                        <div class="form-group">
+                            <label for="sf-database">Database</label>
+                            <input type="text" id="sf-database" placeholder="MY_DB">
+                        </div>
+                        <div class="form-group">
+                            <label for="sf-schema">Schema</label>
+                            <input type="text" id="sf-schema" placeholder="PUBLIC" value="PUBLIC">
+                        </div>
+                    </div>
+
+                    <div class="sf-action-row">
+                        <div class="target-table-group">
+                            <label for="sf-table-name"><i class="ri-table-line"></i> Target Table Name in Snowflake:</label>
+                            <input type="text" id="sf-table-name" placeholder="e.g., EMPLOYEES_DATA">
+                        </div>
+                        <div class="sf-buttons">
+                            <button class="btn btn-outline" id="test-sf-btn">
+                                <i class="ri-plug-line"></i> Test Connection
+                            </button>
+                            <button class="btn btn-snowflake" id="save-sf-btn">
+                                <i class="ri-cloud-upload-fill"></i> Push Data to Snowflake Table
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Snowflake Status Output -->
+                    <div id="sf-response-area" class="server-response hidden">
+                        <h4>Snowflake Sync Result:</h4>
+                        <pre><code id="sf-output">{}</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Backend Execution & Query Panel (Collapsible) -->
+            <section class="server-panel hidden" id="server-panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="ri-code-s-slash-line"></i>
+                        <h3>Python Backend & Query Executer</h3>
+                        <span class="tag">FastAPI + Pandas</span>
+                    </div>
+                    <button class="icon-btn" id="close-server-panel"><i class="ri-close-line"></i></button>
+                </div>
+                <div class="panel-body">
+                    <p class="panel-desc">Run server-side Pandas filtering, data aggregation, or custom Python queries on the uploaded CSV.</p>
+                    <div class="query-box">
+                        <label for="query-input">Pandas Query / Filter Expression:</label>
+                        <div class="input-with-btn">
+                            <input type="text" id="query-input" placeholder="e.g., age > 25 and department == 'Engineering' or df.describe().to_dict()">
+                            <button class="btn btn-accent" id="execute-query-btn">
+                                <i class="ri-play-fill"></i> Execute on Server
+                            </button>
+                        </div>
+                    </div>
+                    <div id="server-response-area" class="server-response hidden">
+                        <h4>Execution Result:</h4>
+                        <pre><code id="server-output">{}</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Data Table Section (Hidden initially) -->
+            <section class="table-section hidden" id="table-section">
+                <div class="table-toolbar">
+                    <div class="search-box">
+                        <i class="ri-search-line"></i>
+                        <input type="text" id="search-input" placeholder="Search across all columns...">
+                        <button class="clear-search hidden" id="clear-search-btn"><i class="ri-close-circle-fill"></i></button>
+                    </div>
+                    <div class="toolbar-controls">
+                        <div class="control-group">
+                            <label for="rows-per-page">Rows per page:</label>
+                            <select id="rows-per-page">
+                                <option value="15">15</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-outline btn-sm" id="export-csv-btn">
+                            <i class="ri-download-2-line"></i> Export Filtered CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Table Container with Sticky Header -->
+                <div class="table-wrapper" id="table-wrapper">
+                    <table class="data-table" id="csv-table">
+                        <thead id="table-head">
+                            <!-- Dynamically injected headers -->
+                        </thead>
+                        <tbody id="table-body">
+                            <!-- Dynamically injected rows -->
+                        </tbody>
+                    </table>
+                    <!-- Empty state when no results match search -->
+                    <div class="no-results hidden" id="no-results">
+                        <i class="ri-file-search-line"></i>
+                        <p>No matching records found for your search query.</p>
+                    </div>
+                </div>
+
+                <!-- Pagination Footer -->
+                <footer class="pagination-footer">
+                    <div class="pagination-info" id="pagination-info">
+                        Showing 0 to 0 of 0 entries
+                    </div>
+                    <div class="pagination-buttons" id="pagination-buttons">
+                        <button class="btn-page" id="page-first" disabled><i class="ri-skip-back-mini-fill"></i></button>
+                        <button class="btn-page" id="page-prev" disabled><i class="ri-arrow-left-s-line"></i> Prev</button>
+                        <span class="page-numbers" id="page-numbers"></span>
+                        <button class="btn-page" id="page-next" disabled>Next <i class="ri-arrow-right-s-line"></i></button>
+                        <button class="btn-page" id="page-last" disabled><i class="ri-skip-forward-mini-fill"></i></button>
+                    </div>
+                </footer>
+            </section>
+        </main>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+id,name,department,role,salary,age,location,rating,join_date
+1,Aarav Sharma,Engineering,Senior Software Engineer,145000,29,Bangalore,4.8,2021-03-15
+2,Priya Patel,Data Science,Machine Learning Lead,160000,31,Hyderabad,4.9,2020-07-22
+3,Rohan Gupta,Product,Product Manager,135000,28,Mumbai,4.6,2022-01-10
+4,Sneha Iyer,Design,Lead UI/UX Designer,125000,27,Bangalore,4.7,2021-11-05
+5,Vikram Singh,Sales,Enterprise Account Executive,110000,34,Delhi,4.5,2019-09-18
+6,Ananya Verma,Engineering,Frontend Engineer,95000,24,Pune,4.3,2023-06-01
+7,Karthik Nair,Data Science,Data Analyst,88000,25,Chennai,4.4,2023-02-14
+8,Meera Joshi,Marketing,Growth Marketing Manager,105000,29,Mumbai,4.6,2022-08-20
+9,Divya Reddy,Engineering,Backend Engineer,115000,26,Hyderabad,4.7,2022-04-11
+10,Siddharth Rao,Product,Associate Product Manager,90000,23,Bangalore,4.2,2023-09-01
+11,Neha Kapoor,Human Resources,HR Business Partner,98000,30,Delhi,4.5,2021-05-19
+12,Arjun Menon,Engineering,DevOps Engineer,130000,28,Chennai,4.8,2021-10-12
+13,Pooja Das,Design,Product Designer,102000,26,Pune,4.5,2022-07-03
+14,Rahul Kulkarni,Engineering,Staff Engineer,180000,36,Bangalore,4.9,2018-02-01
+15,Shreya Ghosh,Sales,Sales Development Rep,75000,22,Mumbai,4.1,2024-01-15
+16,Aditya Kumar,Data Science,Data Engineer,122000,27,Hyderabad,4.6,2022-03-28
+17,Kavita Mishra,Finance,Financial Analyst,92000,26,Delhi,4.4,2023-01-09
+18,Manish Tiwari,Engineering,QA Automation Engineer,96000,27,Pune,4.3,2022-11-14
+19,Swati Mukherjee,Product,Senior UX Researcher,118000,32,Bangalore,4.7,2020-12-01
+20,Nitin Yadav,Operations,Operations Manager,108000,33,Chennai,4.5,2021-06-18
