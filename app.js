@@ -1,6 +1,6 @@
 /**
- * CSV Executer & Inspector - Core Frontend Logic
- * High-performance client-side CSV parsing, virtual rendering, filtering, sorting, and Snowflake Cloud sync.
+ * CSV Executer, Snowflake & Apache Kafka Stream Inspector - Core Frontend Logic
+ * Client-side CSV parsing, virtual rendering, filtering, sorting, Snowflake Cloud sync, and real-time Kafka batch streaming.
  */
 
 // Global Application State
@@ -17,7 +17,9 @@ const appState = {
     parseTime: 0,
     serverMode: false,
     serverFileUploaded: false,
-    snowflakeConnected: false
+    snowflakeConnected: false,
+    kafkaStreaming: false,
+    kafkaStatusInterval: null
 };
 
 // DOM Elements
@@ -33,6 +35,7 @@ const parseTimeEl = document.getElementById('parse-time');
 const resetFileBtn = document.getElementById('reset-file-btn');
 const uploadToServerBtn = document.getElementById('upload-to-server-btn');
 const openSnowflakeSaveBtn = document.getElementById('open-snowflake-save-btn');
+const openKafkaStreamBtn = document.getElementById('open-kafka-stream-btn');
 
 const tableSection = document.getElementById('table-section');
 const tableHead = document.getElementById('table-head');
@@ -74,6 +77,23 @@ const testSfBtn = document.getElementById('test-sf-btn');
 const saveSfBtn = document.getElementById('save-sf-btn');
 const sfResponseArea = document.getElementById('sf-response-area');
 const sfOutput = document.getElementById('sf-output');
+
+// Apache Kafka DOM Elements
+const toggleKafkaBtn = document.getElementById('toggle-kafka-btn');
+const kafkaPanel = document.getElementById('kafka-panel');
+const closeKafkaPanelBtn = document.getElementById('close-kafka-panel');
+const kafkaTopicInput = document.getElementById('kafka-topic');
+const kafkaBatchSizeInput = document.getElementById('kafka-batch-size');
+const kafkaModeSelect = document.getElementById('kafka-mode');
+const kafkaTableNameInput = document.getElementById('kafka-table-name');
+const startKafkaBtn = document.getElementById('start-kafka-btn');
+const kProduced = document.getElementById('k-produced');
+const kConsumed = document.getElementById('k-consumed');
+const kBatches = document.getElementById('k-batches');
+const kafkaProgressWrapper = document.getElementById('kafka-progress-wrapper');
+const kafkaProgressBar = document.getElementById('kafka-progress-bar');
+const kafkaTerminalStatus = document.getElementById('kafka-terminal-status');
+const kafkaLogsBox = document.getElementById('kafka-logs-box');
 
 /* ==========================================================================
    Event Listeners & Drag-Drop Setup
@@ -194,6 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
         serverPanel.classList.toggle('hidden');
         if (!serverPanel.classList.contains('hidden')) {
             snowflakePanel.classList.add('hidden');
+            kafkaPanel.classList.add('hidden');
         }
     });
 
@@ -206,12 +227,14 @@ document.addEventListener('DOMContentLoaded', () => {
         snowflakePanel.classList.toggle('hidden');
         if (!snowflakePanel.classList.contains('hidden')) {
             serverPanel.classList.add('hidden');
+            kafkaPanel.classList.add('hidden');
         }
     });
 
     openSnowflakeSaveBtn.addEventListener('click', () => {
         snowflakePanel.classList.remove('hidden');
         serverPanel.classList.add('hidden');
+        kafkaPanel.classList.add('hidden');
         sfTableNameInput.focus();
     });
 
@@ -219,12 +242,33 @@ document.addEventListener('DOMContentLoaded', () => {
         snowflakePanel.classList.add('hidden');
     });
 
+    // Apache Kafka Panel Toggles
+    toggleKafkaBtn.addEventListener('click', () => {
+        kafkaPanel.classList.toggle('hidden');
+        if (!kafkaPanel.classList.contains('hidden')) {
+            serverPanel.classList.add('hidden');
+            snowflakePanel.classList.add('hidden');
+        }
+    });
+
+    openKafkaStreamBtn.addEventListener('click', () => {
+        kafkaPanel.classList.remove('hidden');
+        serverPanel.classList.add('hidden');
+        snowflakePanel.classList.add('hidden');
+        kafkaTableNameInput.focus();
+    });
+
+    closeKafkaPanelBtn.addEventListener('click', () => {
+        kafkaPanel.classList.add('hidden');
+    });
+
     uploadToServerBtn.addEventListener('click', uploadCsvToBackend);
     executeQueryBtn.addEventListener('click', executePythonQuery);
     
-    // Snowflake API actions
+    // Snowflake & Kafka API actions
     testSfBtn.addEventListener('click', testSnowflakeConnection);
     saveSfBtn.addEventListener('click', saveToSnowflake);
+    startKafkaBtn.addEventListener('click', startKafkaStreaming);
 });
 
 /* ==========================================================================
@@ -235,16 +279,17 @@ function handleFileSelect(file) {
     fileNameEl.textContent = file.name;
     fileSizeEl.innerHTML = `<i class="ri-hard-drive-2-line"></i> ${formatFileSize(file.size)}`;
 
-    // Auto-populate default Snowflake table name
+    // Auto-populate default Snowflake & Kafka table names
     const cleanName = file.name.replace(/\.csv$/i, '').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase();
     sfTableNameInput.value = cleanName;
+    kafkaTableNameInput.value = `${cleanName}_KAFKA`;
 
     const startTime = performance.now();
 
     Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        dynamicTyping: false, // Keep strings to avoid precision errors, format cleanly
+        dynamicTyping: false,
         complete: (results) => {
             const endTime = performance.now();
             appState.parseTime = Math.round(endTime - startTime);
@@ -290,11 +335,17 @@ function resetApp() {
     searchInput.value = '';
     clearSearchBtn.classList.add('hidden');
 
+    if (appState.kafkaStatusInterval) {
+        clearInterval(appState.kafkaStatusInterval);
+        appState.kafkaStatusInterval = null;
+    }
+
     dropZone.classList.remove('hidden');
     fileInfoCard.classList.add('hidden');
     tableSection.classList.add('hidden');
     serverPanel.classList.add('hidden');
     snowflakePanel.classList.add('hidden');
+    kafkaPanel.classList.add('hidden');
 }
 
 /* ==========================================================================
@@ -304,7 +355,6 @@ function renderTableHeader() {
     tableHead.innerHTML = '';
     const tr = document.createElement('tr');
 
-    // Index column
     const thIdx = document.createElement('th');
     thIdx.textContent = '#';
     thIdx.classList.add('row-index');
@@ -328,7 +378,6 @@ function renderTableHeader() {
         content.appendChild(iconSpan);
         th.appendChild(content);
 
-        // Sort click listener
         th.addEventListener('click', () => handleHeaderSort(header, th));
         tr.appendChild(th);
     });
@@ -344,7 +393,6 @@ function handleHeaderSort(column, thElement) {
         appState.sortAsc = true;
     }
 
-    // Update th styles
     document.querySelectorAll('.data-table th').forEach(th => {
         th.classList.remove('sorted-asc', 'sorted-desc');
         const icon = th.querySelector('.sort-icon');
@@ -357,12 +405,10 @@ function handleHeaderSort(column, thElement) {
         activeIcon.innerHTML = appState.sortAsc ? '<i class="ri-arrow-up-line"></i>' : '<i class="ri-arrow-down-line"></i>';
     }
 
-    // Sort data
     appState.filteredRows.sort((a, b) => {
         let valA = a[column] !== undefined && a[column] !== null ? a[column] : '';
         let valB = b[column] !== undefined && b[column] !== null ? b[column] : '';
 
-        // Try numeric sort
         const numA = Number(valA);
         const numB = Number(valB);
         if (!isNaN(numA) && !isNaN(numB) && valA !== '' && valB !== '') {
@@ -392,7 +438,6 @@ function applyFiltersAndRender() {
         });
     }
 
-    // Re-apply sorting if active
     if (appState.sortCol) {
         const col = appState.sortCol;
         const th = document.querySelector(`.data-table th[data-col="${col}"]`);
@@ -439,7 +484,6 @@ function renderTable() {
     pageData.forEach((row, i) => {
         const tr = document.createElement('tr');
 
-        // Row Index
         const tdIdx = document.createElement('td');
         tdIdx.className = 'row-index';
         tdIdx.textContent = startIndex + i + 1;
@@ -449,7 +493,7 @@ function renderTable() {
             const td = document.createElement('td');
             const cellValue = row[header] !== undefined && row[header] !== null ? row[header] : '';
             td.textContent = cellValue;
-            td.title = cellValue; // tooltip on hover
+            td.title = cellValue;
             tr.appendChild(td);
         });
 
@@ -602,7 +646,6 @@ async function executePythonQuery() {
     }
 
     if (!appState.serverFileUploaded) {
-        // Automatically upload to server before querying if not yet sent
         await uploadCsvToBackend();
         if (!appState.serverFileUploaded) return;
     }
@@ -647,7 +690,6 @@ function getSnowflakeCredentialsPayload() {
     const database = sfDatabaseInput.value.trim();
     const schema = sfSchemaInput.value.trim();
 
-    // If inputs are empty, return null or empty object so backend uses .env
     if (!account && !user && !password) {
         return null;
     }
@@ -714,14 +756,13 @@ async function saveToSnowflake() {
         return;
     }
 
-    // Ensure CSV is uploaded to Python memory first if not yet done
     if (!appState.serverFileUploaded) {
         await uploadCsvToBackend();
         if (!appState.serverFileUploaded) return;
     }
 
     saveSfBtn.disabled = true;
-    saveSfBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Bulk-Inserting to Snowflake (`write_pandas`)...';
+    saveSfBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Bulk-Inserting (`write_pandas`)...';
 
     try {
         const creds = getSnowflakeCredentialsPayload();
@@ -752,5 +793,130 @@ async function saveToSnowflake() {
     } finally {
         saveSfBtn.disabled = false;
         saveSfBtn.innerHTML = '<i class="ri-cloud-upload-fill"></i> Push Data to Snowflake Table';
+    }
+}
+
+/* ==========================================================================
+   Apache Kafka Streaming & 10-Record Batch Upload Functions
+   ========================================================================== */
+async function startKafkaStreaming() {
+    if (!appState.currentFile) {
+        showToast('Please upload or drag & drop a CSV file first.', 'error');
+        return;
+    }
+
+    const tableName = kafkaTableNameInput.value.trim();
+    if (!tableName) {
+        showToast('Please specify a target Snowflake table name for the Kafka stream.', 'error');
+        kafkaTableNameInput.focus();
+        return;
+    }
+
+    if (!appState.serverFileUploaded) {
+        await uploadCsvToBackend();
+        if (!appState.serverFileUploaded) return;
+    }
+
+    const topicName = kafkaTopicInput.value.trim() || "sf-csv-stream";
+    const batchSize = parseInt(kafkaBatchSizeInput.value, 10) || 10;
+    const useRealKafka = (kafkaModeSelect.value === "real");
+
+    startKafkaBtn.disabled = true;
+    startKafkaBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Kafka Pipeline Running...';
+    kafkaProgressWrapper.classList.remove('hidden');
+    kafkaTerminalStatus.textContent = 'STREAMING';
+    kafkaTerminalStatus.style.color = '#ff8c3b';
+    kafkaLogsBox.innerHTML = '<p class="log-info">[System] Launching Apache Kafka stream pipeline...</p>';
+
+    try {
+        const creds = getSnowflakeCredentialsPayload();
+        const response = await fetch('http://localhost:8000/api/kafka/start-stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic_name: topicName,
+                batch_size: batchSize,
+                table_name: tableName,
+                use_real_kafka: useRealKafka,
+                bootstrap_servers: "localhost:9092",
+                credentials: creds
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || 'Failed to start Kafka stream');
+        }
+
+        appState.kafkaStreaming = true;
+        showToast(data.message, 'success');
+
+        // Start polling status every 400ms to animate terminal & progress bar
+        if (appState.kafkaStatusInterval) clearInterval(appState.kafkaStatusInterval);
+        appState.kafkaStatusInterval = setInterval(pollKafkaStatus, 400);
+
+    } catch (err) {
+        showToast(`Kafka error: ${err.message}`, 'error');
+        startKafkaBtn.disabled = false;
+        startKafkaBtn.innerHTML = '<i class="ri-play-fill"></i> Start Kafka Stream & Push 10 Rows/Batch';
+        kafkaTerminalStatus.textContent = 'ERROR';
+        kafkaTerminalStatus.style.color = '#ef4444';
+    }
+}
+
+async function pollKafkaStatus() {
+    try {
+        const response = await fetch('http://localhost:8000/api/kafka/status');
+        if (!response.ok) return;
+
+        const data = await response.json();
+
+        // Update counters
+        kProduced.textContent = (data.messages_produced || 0).toLocaleString();
+        kConsumed.textContent = (data.messages_consumed || 0).toLocaleString();
+        kBatches.textContent = (data.batches_uploaded || 0).toLocaleString();
+
+        // Update progress bar
+        const total = data.total_rows || 1;
+        const progress = Math.min(100, Math.round(((data.messages_consumed || 0) / total) * 100));
+        kafkaProgressBar.style.width = `${progress}%`;
+
+        // Render terminal logs
+        if (data.logs && data.logs.length > 0) {
+            const htmlLogs = data.logs.map(line => {
+                let cssClass = 'log-info';
+                if (line.includes('[Kafka Producer]')) cssClass = 'log-producer';
+                else if (line.includes('[Kafka Consumer]')) cssClass = 'log-consumer';
+                else if (line.includes('[Snowflake DB]')) cssClass = 'log-snowflake';
+                else if (line.includes('[Error]')) cssClass = 'log-error';
+                return `<p class="${cssClass}">${line}</p>`;
+            }).join('');
+
+            kafkaLogsBox.innerHTML = htmlLogs;
+            kafkaLogsBox.scrollTop = kafkaLogsBox.scrollHeight;
+        }
+
+        // If pipeline finished or errored
+        if (data.status === 'completed' || data.status === 'error') {
+            clearInterval(appState.kafkaStatusInterval);
+            appState.kafkaStatusInterval = null;
+            appState.kafkaStreaming = false;
+
+            startKafkaBtn.disabled = false;
+            startKafkaBtn.innerHTML = '<i class="ri-play-fill"></i> Start Kafka Stream & Push 10 Rows/Batch';
+
+            if (data.status === 'completed') {
+                kafkaTerminalStatus.textContent = 'COMPLETED';
+                kafkaTerminalStatus.style.color = '#10b981';
+                kafkaProgressBar.style.width = '100%';
+                showToast(`Kafka batch stream completed! All ${data.total_rows} rows inserted to Snowflake.`, 'success');
+            } else {
+                kafkaTerminalStatus.textContent = 'ERROR';
+                kafkaTerminalStatus.style.color = '#ef4444';
+                showToast(`Kafka stream halted: ${data.error_message}`, 'error');
+            }
+        }
+    } catch (err) {
+        console.error("Status poll error:", err);
     }
 }
