@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CSV Executer & Inspector | High-Performance Data Studio & Snowflake Sync</title>
+    <title>CSV Executer, Snowflake & Apache Kafka Data Studio</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,7 +26,7 @@
                 <div class="logo-icon"><i class="ri-table-alt-line"></i></div>
                 <div>
                     <h1>CSV <span>Executer</span></h1>
-                    <p class="subtitle">Interactive CSV Viewer, Inspector, Python Execution & Snowflake Sync Engine</p>
+                    <p class="subtitle">Interactive CSV Inspector, Python Engine, Snowflake Sync & Kafka Streaming</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -38,6 +38,9 @@
                 </button>
                 <button class="btn btn-snowflake" id="toggle-snowflake-btn" title="Toggle Snowflake Cloud DB Panel">
                     <i class="ri-cloud-fill"></i> Snowflake DB
+                </button>
+                <button class="btn btn-kafka" id="toggle-kafka-btn" title="Toggle Apache Kafka Streaming Studio">
+                    <i class="ri-pulse-line"></i> Kafka Stream
                 </button>
             </div>
         </header>
@@ -53,11 +56,12 @@
                             <i class="ri-upload-cloud-2-line"></i>
                         </div>
                         <h3>Drag & Drop your CSV file here</h3>
-                        <p>Or <button type="button" class="browse-link" id="browse-btn">browse from computer</button> to inspect, execute, and sync to Snowflake immediately</p>
+                        <p>Or <button type="button" class="browse-link" id="browse-btn">browse from computer</button> to inspect, execute, sync to Snowflake & stream via Kafka immediately</p>
                         <div class="supported-info">
                             <span><i class="ri-check-line"></i> Instant Client-Side Parsing</span>
                             <span><i class="ri-check-line"></i> Python Pandas Engine</span>
                             <span><i class="ri-check-line"></i> Snowflake Cloud Bulk-Sync</span>
+                            <span><i class="ri-check-line"></i> Apache Kafka 10-Row Batching</span>
                         </div>
                     </div>
                 </div>
@@ -81,11 +85,80 @@
                             <i class="ri-refresh-line"></i> Change File
                         </button>
                         <button class="btn btn-primary" id="upload-to-server-btn">
-                            <i class="ri-terminal-box-line"></i> Send to Python Backend
+                            <i class="ri-terminal-box-line"></i> Send to Python
                         </button>
                         <button class="btn btn-snowflake-action" id="open-snowflake-save-btn">
                             <i class="ri-database-2-fill"></i> Save to Snowflake
                         </button>
+                        <button class="btn btn-kafka-action" id="open-kafka-stream-btn">
+                            <i class="ri-pulse-fill"></i> Stream via Kafka (10/batch)
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Apache Kafka Streaming Studio Panel (Collapsible) -->
+            <section class="kafka-panel hidden" id="kafka-panel">
+                <div class="panel-header">
+                    <div class="panel-title kafka-title">
+                        <i class="ri-pulse-line"></i>
+                        <h3>Apache Kafka Streaming & 10-Record Batch Ingestion</h3>
+                        <span class="tag kafka-tag">Real-Time Event Broker</span>
+                    </div>
+                    <button class="icon-btn" id="close-kafka-panel"><i class="ri-close-line"></i></button>
+                </div>
+                <div class="panel-body">
+                    <p class="panel-desc">Stream your CSV dataset through an Apache Kafka topic where our batch consumer accumulates exactly <strong>10 records at a time</strong> and pushes each batch directly to your Snowflake table (`write_pandas`).</p>
+                    
+                    <div class="sf-form-grid kafka-config-grid">
+                        <div class="form-group">
+                            <label for="kafka-topic">Kafka Topic Name</label>
+                            <input type="text" id="kafka-topic" value="sf-csv-stream" placeholder="sf-csv-stream">
+                        </div>
+                        <div class="form-group">
+                            <label for="kafka-batch-size">Batch Size (Records/Chunk)</label>
+                            <input type="number" id="kafka-batch-size" value="10" min="1" max="1000">
+                        </div>
+                        <div class="form-group">
+                            <label for="kafka-mode">Kafka Broker Mode</label>
+                            <select id="kafka-mode" class="kafka-select">
+                                <option value="simulated" selected>Async Kafka Broker Simulator (Instant Demo)</option>
+                                <option value="real">Real Apache Kafka Server (localhost:9092)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="kafka-table-name">Target Snowflake Table</label>
+                            <input type="text" id="kafka-table-name" placeholder="e.g., SAMPLE_DATA_KAFKA">
+                        </div>
+                    </div>
+
+                    <div class="kafka-action-row">
+                        <div class="kafka-status-summary">
+                            <span class="k-stat"><i class="ri-send-plane-fill"></i> Produced: <strong id="k-produced">0</strong> rows</span>
+                            <span class="k-stat"><i class="ri-download-cloud-fill"></i> Consumed: <strong id="k-consumed">0</strong> rows</span>
+                            <span class="k-stat"><i class="ri-database-2-fill"></i> Snowflake Batches: <strong id="k-batches">0</strong></span>
+                        </div>
+                        <button class="btn btn-kafka" id="start-kafka-btn">
+                            <i class="ri-play-fill"></i> Start Kafka Stream & Push 10 Rows/Batch
+                        </button>
+                    </div>
+
+                    <!-- Live Progress Bar -->
+                    <div class="kafka-progress-container hidden" id="kafka-progress-wrapper">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="kafka-progress-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Live Streaming Terminal Logs -->
+                    <div class="kafka-terminal" id="kafka-terminal">
+                        <div class="terminal-header">
+                            <span><i class="ri-terminal-line"></i> Live Kafka Broker & Snowflake Sync Terminal</span>
+                            <span class="terminal-badge" id="kafka-terminal-status">READY</span>
+                        </div>
+                        <div class="terminal-body" id="kafka-logs-box">
+                            <p class="log-info">[System] Apache Kafka Streaming Studio initialized. Click 'Start Kafka Stream' to begin publishing records in batches of 10 to Snowflake.</p>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -106,7 +179,7 @@
                     <div class="sf-form-grid">
                         <div class="form-group">
                             <label for="sf-account">Snowflake Account Identifier</label>
-                            <input type="text" id="sf-account" placeholder="e.g., xy12345.us-east-1 or org-account">
+                            <input type="text" id="sf-account" placeholder="e.g., bttwlpr-xv06554">
                         </div>
                         <div class="form-group">
                             <label for="sf-user">Username</label>

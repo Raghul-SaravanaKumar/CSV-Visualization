@@ -1,13 +1,16 @@
 import io
 import os
 import re
+import asyncio
 import traceback
 import pandas as pd
 from typing import Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+from kafka_engine import kafka_stream_manager, run_kafka_pipeline, KAFKA_PYTHON_AVAILABLE
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -20,9 +23,9 @@ except ImportError:
     SNOWFLAKE_AVAILABLE = False
 
 app = FastAPI(
-    title="CSV Executer & Snowflake Sync API",
-    description="High-performance backend API for analyzing, processing, and saving CSV datasets to Snowflake using Pandas.",
-    version="2.0.0"
+    title="CSV Executer, Snowflake & Apache Kafka API",
+    description="High-performance backend API for analyzing, processing, and streaming CSV datasets to Snowflake in 10-record chunks using Apache Kafka.",
+    version="3.0.0"
 )
 
 # Enable CORS so the frontend can communicate seamlessly
@@ -50,12 +53,20 @@ class SnowflakeCredentials(BaseModel):
     role: Optional[str] = None
     warehouse: Optional[str] = None
     database: Optional[str] = None
-    schema_: Optional[str] = None  # Using schema_ to avoid keyword conflict
+    schema_: Optional[str] = None
 
 class SnowflakeSaveRequest(BaseModel):
     table_name: str
     credentials: Optional[SnowflakeCredentials] = None
-    if_exists: str = "replace"  # "replace" or "append"
+    if_exists: str = "replace"
+
+class KafkaStreamRequest(BaseModel):
+    topic_name: str = "sf-csv-stream"
+    batch_size: int = 10
+    table_name: str
+    use_real_kafka: bool = False
+    bootstrap_servers: str = "localhost:9092"
+    credentials: Optional[SnowflakeCredentials] = None
 
 def get_snowflake_connection(creds: Optional[SnowflakeCredentials] = None):
     """
@@ -67,10 +78,8 @@ def get_snowflake_connection(creds: Optional[SnowflakeCredentials] = None):
             detail="snowflake-connector-python is not installed. Please run: pip install snowflake-connector-python[pandas]"
         )
 
-    # Resolve connection details (payload override takes priority over .env)
     account = (creds.account if creds and creds.account else os.getenv("SNOWFLAKE_ACCOUNT"))
     if account:
-        # Smart cleanup: if user pastes full URL like https://bttwlpr-xv06554.snowflakecomputing.com
         account = account.replace("https://", "").replace("http://", "")
         if ".snowflakecomputing.com" in account:
             account = account.split(".snowflakecomputing.com")[0]
@@ -114,35 +123,29 @@ def get_snowflake_connection(creds: Optional[SnowflakeCredentials] = None):
 def read_root():
     return {
         "status": "online",
-        "service": "CSV Executer & Snowflake Sync API",
+        "service": "CSV Executer, Snowflake & Apache Kafka API",
         "loaded_file": app_state["file_name"],
         "rows": len(app_state["current_df"]) if app_state["current_df"] is not None else 0,
-        "snowflake_driver_ready": SNOWFLAKE_AVAILABLE
+        "snowflake_driver_ready": SNOWFLAKE_AVAILABLE,
+        "kafka_driver_ready": KAFKA_PYTHON_AVAILABLE
     }
 
 @app.post("/api/upload")
 async def upload_csv(file: UploadFile = File(...)):
-    """
-    Receives a CSV file upload, parses it using Pandas, stores it in memory,
-    and returns comprehensive statistical metadata and preview data.
-    """
     if not file.filename.lower().endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only .csv files are supported.")
 
     try:
         content = await file.read()
         df = pd.read_csv(io.BytesIO(content))
-
-        # Store globally
+        
         app_state["current_df"] = df
         app_state["file_name"] = file.filename
 
-        # Clean NaN values for JSON serialization
         df_clean = df.fillna("")
-
         preview_rows = df_clean.head(10).to_dict(orient="records")
         dtypes = {col: str(dtype) for col, dtype in df.dtypes.items()}
-
+        
         return {
             "status": "success",
             "message": f"Successfully parsed '{file.filename}' on Python backend.",
@@ -160,9 +163,6 @@ async def upload_csv(file: UploadFile = File(...)):
 
 @app.post("/api/execute")
 async def execute_query(payload: QueryRequest):
-    """
-    Executes a Pandas filter/query expression or dataframe operation on the loaded CSV.
-    """
     df = app_state["current_df"]
     if df is None:
         raise HTTPException(status_code=400, detail="No CSV dataset loaded. Please upload a file first via /api/upload.")
@@ -175,7 +175,6 @@ async def execute_query(payload: QueryRequest):
         if query_str.startswith("df."):
             local_vars = {"df": df, "pd": pd}
             result_obj = eval(query_str, {"__builtins__": {}}, local_vars)
-
             if isinstance(result_obj, pd.DataFrame):
                 result = result_obj.fillna("").to_dict(orient="records")
             elif isinstance(result_obj, pd.Series):
@@ -199,9 +198,6 @@ async def execute_query(payload: QueryRequest):
 
 @app.post("/api/snowflake/connect")
 async def test_snowflake_connection(creds: Optional[SnowflakeCredentials] = None):
-    """
-    Tests and validates Snowflake connection using provided credentials or .env defaults.
-    """
     conn, info = get_snowflake_connection(creds)
     try:
         cursor = conn.cursor()
@@ -209,7 +205,7 @@ async def test_snowflake_connection(creds: Optional[SnowflakeCredentials] = None
         row = cursor.fetchone()
         cursor.close()
         conn.close()
-
+        
         return {
             "status": "success",
             "message": "Connected to Snowflake successfully!",
@@ -228,36 +224,21 @@ async def test_snowflake_connection(creds: Optional[SnowflakeCredentials] = None
 
 @app.post("/api/snowflake/save")
 async def save_to_snowflake(payload: SnowflakeSaveRequest):
-    """
-    Saves the currently loaded CSV DataFrame directly into a Snowflake database table using write_pandas.
-    Automatically formats column names to uppercase SQL-compatible identifiers.
-    """
     df = app_state["current_df"]
     if df is None:
-        raise HTTPException(
-            status_code=400,
-            detail="No CSV data loaded on server. Please upload your CSV first before saving to Snowflake."
-        )
+        raise HTTPException(status_code=400, detail="No CSV data loaded on server. Please upload your CSV first.")
 
     table_name = payload.table_name.strip()
     if not table_name:
         raise HTTPException(status_code=400, detail="Target table name is required.")
 
-    # Clean and uppercase table name (Snowflake standard)
     clean_table_name = re.sub(r'[^A-Za-z0-9_]', '_', table_name).upper()
-
-    # Clean column names for Snowflake SQL compatibility
     df_to_save = df.copy()
-    df_to_save.columns = [
-        re.sub(r'[^A-Za-z0-9_]', '_', col).upper() for col in df_to_save.columns
-    ]
+    df_to_save.columns = [re.sub(r'[^A-Za-z0-9_]', '_', col).upper() for col in df_to_save.columns]
 
     conn, info = get_snowflake_connection(payload.credentials)
     try:
-        # If replace mode and table exists, drop it or use write_pandas overwrite
-        # write_pandas auto_create_table=True creates table if it doesn't exist
         overwrite = (payload.if_exists == "replace")
-
         success, nchunks, nrows, _ = write_pandas(
             conn=conn,
             df=df_to_save,
@@ -267,11 +248,10 @@ async def save_to_snowflake(payload: SnowflakeSaveRequest):
             auto_create_table=True,
             overwrite=overwrite
         )
-
         conn.close()
 
         if not success:
-            raise HTTPException(status_code=500, detail="write_pandas reported failure when inserting into Snowflake.")
+            raise HTTPException(status_code=500, detail="write_pandas reported failure.")
 
         return {
             "status": "success",
@@ -288,6 +268,51 @@ async def save_to_snowflake(payload: SnowflakeSaveRequest):
         if conn:
             conn.close()
         raise HTTPException(status_code=500, detail=f"Snowflake write error: {str(e)}")
+
+@app.post("/api/kafka/start-stream")
+async def start_kafka_stream(payload: KafkaStreamRequest):
+    """
+    Starts the asynchronous Apache Kafka streaming & batch upload pipeline (10 records/batch).
+    Returns immediately while the background task publishes and consumes batches dynamically.
+    """
+    df = app_state["current_df"]
+    if df is None:
+        raise HTTPException(status_code=400, detail="No CSV data loaded on server. Please upload your CSV first.")
+
+    if kafka_stream_manager.is_running:
+        raise HTTPException(status_code=409, detail="A Kafka streaming pipeline is already in progress. Please wait for it to finish.")
+
+    table_name = payload.table_name.strip()
+    if not table_name:
+        raise HTTPException(status_code=400, detail="Target table name in Snowflake is required.")
+
+    # Launch streaming task asynchronously
+    asyncio.create_task(
+        run_kafka_pipeline(
+            df=df,
+            topic_name=payload.topic_name,
+            batch_size=payload.batch_size,
+            table_name=table_name,
+            use_real_kafka=payload.use_real_kafka,
+            bootstrap_servers=payload.bootstrap_servers,
+            get_conn_fn=get_snowflake_connection,
+            creds_payload=payload.credentials
+        )
+    )
+
+    return {
+        "status": "started",
+        "message": f"Apache Kafka stream initiated! Publishing {len(df)} records in batches of {payload.batch_size} to Snowflake table '{table_name.upper()}'.",
+        "topic": payload.topic_name,
+        "batch_size": payload.batch_size
+    }
+
+@app.get("/api/kafka/status")
+def get_kafka_status():
+    """
+    Returns live progress metrics and logs for the active/recent Kafka streaming pipeline.
+    """
+    return kafka_stream_manager.get_status_dict()
 
 if __name__ == "__main__":
     import uvicorn
